@@ -1,0 +1,15 @@
+langchain
+langgraph-checkpoint-postgres
+langchain-postgres
+psycopg[binary]
+psycopg-pool
+pgvector
+sentence-transformers
+pymupdf
+python-docx
+pyarabic
+langdetect
+fastapi
+uvicorn
+pydantic-settings
+pytest
