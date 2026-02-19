@@ -4,6 +4,9 @@ from tools.eng.eng_tools import get_eng_knowledge_tools
 from model.load_model import get_model
 from middleware.dynamic_prompt import DynamicPromptMiddleware
 from middleware.language_mw import LanguageMiddleware
+from langchain.agents.middleware import TodoListMiddleware
+from langchain.agents.middleware import ContextEditingMiddleware, ClearToolUsesEdit
+
 
 # Combine all tools - LanguageMiddleware will filter them dynamically
 all_tools = get_arabic_knowledge_tools() + get_eng_knowledge_tools()
@@ -15,8 +18,17 @@ agent = create_agent(
     # Initial system prompt is replaced by LanguageMiddleware
     system_prompt="Initializing agent...",
     middleware=[
+        TodoListMiddleware(),
         LanguageMiddleware(verbose=True),
-        DynamicPromptMiddleware(verbose=True)
+        DynamicPromptMiddleware(verbose=True),
+        ContextEditingMiddleware(
+            edits=[
+                ClearToolUsesEdit(
+                    trigger=100000,
+                    keep=3,
+                ),
+            ],
+        ),
     ]
 )
 

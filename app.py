@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent))
 
 from agent.agent import agent
+from langchain_core.messages import HumanMessage
 
 # ─────────────────────────────────────────────
 # Page config
@@ -54,23 +55,18 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # ─────────────────────────────────────────────
-# Helper: run async agent synchronously
+# Helper: stream agent response
 # ─────────────────────────────────────────────
-def run_agent(query: str) -> str:
-    """Run the async LangChain agent inside a new event loop."""
-    async def _invoke():
-        input_data = {
-            "messages": [{"role": "user", "content": query}],
-        }
-        response = await agent.ainvoke(input_data)
-        return response["messages"][-1].content
-
-    # Streamlit runs its own event loop; create a new one for the agent
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_invoke())
-    finally:
-        loop.close()
+async def stream_agent(query: str):
+    """Stream agent response using agent.astream with stream_mode='messages'."""
+    input_data = {
+        "messages": [HumanMessage(content=query)],
+    }
+    
+    # Use LangGraph's astream with messages mode for token-level streaming
+    async for msg, metadata in agent.astream(input_data, stream_mode="messages"):
+        if msg.content and not isinstance(msg, HumanMessage):
+            yield msg.content
 
 # ─────────────────────────────────────────────
 # Chat input
@@ -81,14 +77,21 @@ if prompt := st.chat_input("Ask a question about the documents…"):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Show assistant response with a spinner
+    # Show assistant response with streaming
     with st.chat_message("assistant"):
-        with st.spinner("Searching knowledge base and generating response…"):
+        def sync_generator():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            gen = stream_agent(prompt)
             try:
-                answer = run_agent(prompt)
-            except Exception as e:
-                answer = f"❌ Error: {str(e)}"
+                while True:
+                    try:
+                        yield loop.run_until_complete(gen.__anext__())
+                    except StopAsyncIteration:
+                        break
+            finally:
+                loop.close()
 
-        st.markdown(answer)
+        full_response = st.write_stream(sync_generator())
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
