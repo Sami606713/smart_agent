@@ -11,7 +11,7 @@ load_dotenv()
 class StoreService:
     """
     Service class for managing persistent vector storage using LangGraph's AsyncPostgresStore.
-    Handles knowledge storage with namespacing based on user_id, workspace_id, and optionally agent_id.
+    Handles knowledge storage with language-specific namespacing.
     """
     
     def __init__(self):
@@ -65,31 +65,6 @@ class StoreService:
         )
     
     # =========================================================================
-    # Namespace Helpers
-    # =========================================================================
-    
-    @staticmethod
-    def build_namespace(
-        workspace_id: str | uuid.UUID,
-        agent_id: str | uuid.UUID | None = None
-    ) -> tuple[str, ...]:
-        """
-        Build a namespace tuple for the store based on workspace_id, and optionally agent_id.
-        
-        - If agent_id is provided: ("knowledge", user_id, workspace_id, agent_id)
-        - If agent_id is None: ("knowledge", user_id, workspace_id)
-        
-        Returns:
-            tuple: The namespace tuple for the store
-        """
-        workspace_id_str = str(workspace_id)
-        
-        if agent_id is not None:
-            return ("knowledge", workspace_id_str, str(agent_id))
-        else:
-            return ("knowledge", workspace_id_str)
-    
-    # =========================================================================
     # CRUD Operations
     # =========================================================================
     
@@ -103,7 +78,7 @@ class StoreService:
         Save content to a specific namespace.
         
         Args:
-            namespace: The namespace tuple (e.g., ("knowledge", "user_id", "workspace_id"))
+            namespace: The namespace tuple (e.g., ("knowledge_arabic",))
             content: The text content to store
             metadata: Optional metadata dict
             
@@ -124,85 +99,29 @@ class StoreService:
             print(f"Stored item {item_id} in namespace {namespace}")
             return item_id
     
-    async def save_knowledge(
-        self,
-        workspace_id: str | uuid.UUID,
-        content: str,
-        agent_id: str | uuid.UUID | None = None,
-        metadata: dict | None = None,
-        source: str = "web"
-    ) -> str:
-        """
-        Save knowledge content with automatic namespace building.
-        
-        Args:
-            workspace_id: The workspace ID
-            content: The text content to store
-            agent_id: Optional agent ID (if None, stored at workspace level)
-            metadata: Optional additional metadata
-            source: Source type (e.g., "web", "file", "youtube")
-        
-        Returns:
-            str: The generated item ID
-        """
-        namespace = self.build_namespace(workspace_id, agent_id)
-        
-        # Build metadata
-        full_metadata = {
-            "source": source,
-            "workspace_id": str(workspace_id),
-        }
-        
-        if agent_id is not None:
-            full_metadata["agent_id"] = str(agent_id)
-        
-        if metadata:
-            full_metadata.update(metadata)
-        
-        async with await self._create_store() as store:
-            item_id = str(uuid.uuid4())
-            
-            await store.aput(
-                namespace,
-                item_id,
-                {
-                    "text": content,
-                    "metadata": full_metadata
-                }
-            )
-            print(f"Stored knowledge item {item_id} in namespace {namespace}")
-            return item_id
-    
     async def save_knowledge_batch(
         self,
-        workspace_id: str | uuid.UUID,
+        namespace: tuple[str, ...],
         contents: list[dict],
-        agent_id: str | uuid.UUID | None = None,
-        source: str = "web"
+        source: str = "files"
     ) -> list[str]:
         """
         Save multiple knowledge items in batch.
         
         Args:
-            workspace_id: The workspace ID
+            namespace: The namespace tuple
             contents: List of dicts with 'text' and optional 'metadata' keys
-            agent_id: Optional agent ID (if None, stored at workspace level)
             source: Source type (e.g., "web", "file", "youtube")
         
         Returns:
             list[str]: List of generated item IDs
         """
-        namespace = self.build_namespace(workspace_id, agent_id)
         item_ids = []
         
         # Build base metadata
         base_metadata = {
             "source": source,
-            "workspace_id": str(workspace_id),
         }
-        
-        if agent_id is not None:
-            base_metadata["agent_id"] = str(agent_id)
         
         async with await self._create_store() as store:
             for item in contents:
@@ -244,27 +163,8 @@ class StoreService:
         async with await self._create_store() as store:
             result = await store.aget(namespace, key)
             return result
-    
-    async def get_knowledge(
-        self,
-        workspace_id: str | uuid.UUID,
-        key: str,
-        agent_id: str | uuid.UUID | None = None
-    ) -> Optional[Any]:
-        """
-        Get a specific knowledge item.
-        
-        Args:
-            workspace_id: The workspace ID
-            key: The item ID/key
-            agent_id: Optional agent ID
-            
-        Returns:
-            The stored item or None if not found
-        """
-        namespace = self.build_namespace(workspace_id, agent_id)
-        return await self.get(namespace, key)
-    
+
+
     async def delete(
         self,
         namespace: tuple[str, ...],
@@ -280,23 +180,7 @@ class StoreService:
         async with await self._create_store() as store:
             await store.adelete(namespace, key)
             print(f"Deleted item {key} from namespace {namespace}")
-    
-    async def delete_knowledge(
-        self,
-        workspace_id: str | uuid.UUID,
-        key: str,
-        agent_id: str | uuid.UUID | None = None
-    ) -> None:
-        """
-        Delete a specific knowledge item.
-        
-        Args:
-            workspace_id: The workspace ID
-            key: The item ID/key to delete
-            agent_id: Optional agent ID
-        """
-        namespace = self.build_namespace(workspace_id, agent_id)
-        await self.delete(namespace, key)
+
     
     async def search(
         self,
@@ -321,29 +205,6 @@ class StoreService:
             results = await store.asearch(namespace, query=query, filter=filter, limit=limit)
             return results
     
-    async def search_knowledge(
-        self,
-        workspace_id: str | uuid.UUID,
-        query: str,
-        agent_id: str | uuid.UUID | None = None,
-        filter: dict | None = None,
-        limit: int = 10
-    ) -> list[Any]:
-        """
-        Search for knowledge items using semantic search.
-        
-        Args:
-            workspace_id: The workspace ID
-            query: The search query
-            agent_id: Optional agent ID
-            filter: Optional dictionary to filter by metadata
-            limit: Maximum number of results to return
-            
-        Returns:
-            List of matching items
-        """
-        namespace = self.build_namespace(workspace_id, agent_id)
-        return await self.search(namespace, query, filter, limit)
     
     async def list_items(
         self,
@@ -365,28 +226,6 @@ class StoreService:
         async with await self._create_store() as store:
             results = await store.alist(namespace, limit=limit, offset=offset)
             return results
-    
-    async def list_knowledge(
-        self,
-        workspace_id: str | uuid.UUID,
-        agent_id: str | uuid.UUID | None = None,
-        limit: int = 100,
-        offset: int = 0
-    ) -> list[Any]:
-        """
-        List all knowledge items for a user/workspace.
-        
-        Args:
-            workspace_id: The workspace ID
-            agent_id: Optional agent ID
-            limit: Maximum number of items to return
-            offset: Number of items to skip
-            
-        Returns:
-            List of knowledge items
-        """
-        namespace = self.build_namespace(workspace_id, agent_id)
-        return await self.list_items(namespace, limit, offset)
     
     async def setup(self) -> None:
         """Initialize the store (creates tables if needed)."""

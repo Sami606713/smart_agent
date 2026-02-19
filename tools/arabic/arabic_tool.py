@@ -13,7 +13,7 @@ import uuid
 
 
 @tool
-async def search_store(
+async def search_arabic_store(
     query: str,
     k: int = 5,
     runtime: ToolRuntime = None
@@ -34,22 +34,11 @@ async def search_store(
     if not runtime:
         return "Error: Runtime not available. Tool must be called within agent context."
     
-    state = runtime.state
-
-    # Get workspace_id and agent_id from state
-    user_preferences = state.get("user_preferences", {})
-    workspace_id = user_preferences.get("workspace_id")
-    agent_id = user_preferences.get("agent_id")
-    
-    if not workspace_id:
-        return "Error: workspace_id not found in state. Cannot search store."
-    
     try:
         service = StoreService()
-        results = await service.search_knowledge(
-            workspace_id=workspace_id,
+        results = await service.search(
+            namespace=("knowledge_arabic",),
             query=query,
-            agent_id=agent_id,
             limit=k
         )
         
@@ -79,9 +68,9 @@ async def search_store(
             all_docs.append({"id": key, "text": text})
         
         # Update state
-        state["last_search_results"] = all_docs
-        state["search_query"] = query
-        state["search_count"] = len(all_docs)
+        runtime.state["last_search_results"] = all_docs
+        runtime.state["search_query"] = query
+        runtime.state["search_count"] = len(all_docs)
         
         return "\n\n---\n\n".join(content_with_ids)
     
@@ -90,7 +79,7 @@ async def search_store(
 
 
 @tool
-async def retrieve_document(
+async def retrieve_arabic_document(
     document_key: str,
     runtime: ToolRuntime = None
 ) -> str:
@@ -109,22 +98,11 @@ async def retrieve_document(
     if not runtime:
         return "Error: Runtime not available."
     
-    state = runtime.state
-    
-    # Get workspace_id and agent_id from state
-    user_preferences = state.get("user_preferences", {})
-    workspace_id = user_preferences.get("workspace_id")
-    agent_id = user_preferences.get("agent_id")
-    
-    if not workspace_id:
-        return "Error: workspace_id not found in state."
-    
     try:
         service = StoreService()
-        result = await service.get_knowledge(
-            workspace_id=workspace_id,
-            key=document_key,
-            agent_id=agent_id
+        result = await service.get(
+            namespace=("knowledge_arabic",),
+            key=document_key
         )
         
         if not result:
@@ -140,7 +118,7 @@ async def retrieve_document(
             text = str(value)
         
         # Update state
-        state["last_retrieved_doc"] = document_key
+        runtime.state["last_retrieved_doc"] = document_key
         
         return f"[Document ID: {document_key}]\n{text}"
     
@@ -149,7 +127,7 @@ async def retrieve_document(
 
 
 @tool
-async def list_stored_documents(
+async def list_arabic_stored_documents(
     limit: int = 10,
     runtime: ToolRuntime = None
 ) -> str:
@@ -168,21 +146,10 @@ async def list_stored_documents(
     if not runtime:
         return "Error: Runtime not available."
     
-    state = runtime.state
-    
-    # Get workspace_id and agent_id from state
-    user_preferences = state.get("user_preferences", {})
-    workspace_id = user_preferences.get("workspace_id")
-    agent_id = user_preferences.get("agent_id")
-    
-    if not workspace_id:
-        return "Error: workspace_id not found in state."
-    
     try:
         service = StoreService()
-        items = await service.list_knowledge(
-            workspace_id=workspace_id,
-            agent_id=agent_id,
+        items = await service.list_items(
+            namespace=("knowledge_arabic",),
             limit=limit
         )
         
@@ -204,7 +171,7 @@ async def list_stored_documents(
             doc_list.append(f"[Document ID: {key}]\n{preview}")
             
         # Update state
-        state["listed_documents_count"] = len(doc_list)
+        runtime.state["listed_documents_count"] = len(doc_list)
         
         return "\n\n---\n\n".join(doc_list)
     
@@ -212,9 +179,9 @@ async def list_stored_documents(
         return f"Error listing documents: {str(e)}"
 
 
-def get_knowledge_tools():
+def get_arabic_knowledge_tools():
     """Returns all core knowledge retrieval tools."""
-    return [search_store, retrieve_document, list_stored_documents]
+    return [search_arabic_store, retrieve_arabic_document, list_arabic_stored_documents]
 
 
 if __name__ == "__main__":
@@ -231,15 +198,6 @@ if __name__ == "__main__":
 
     async def test_search():
         print("--- Testing search_store tool ---")
-        
-        # Simulate state that the agent would provide
-        mock_state = {
-            "user_preferences": {
-                "workspace_id": "arabic",
-                "agent_id": None
-            }
-        }
-        mock_runtime = MockRuntime(state=mock_state)
         
         query = "ما هو دور المعلم؟" # "What is the role of the teacher?"
         print(f"Query: {query}")
