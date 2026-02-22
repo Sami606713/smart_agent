@@ -14,7 +14,7 @@ all_tools = get_arabic_knowledge_tools() + get_eng_knowledge_tools()
 agent = create_agent(
     get_model(), 
     tools=all_tools,
-    debug=True,
+    debug=False,
     # Initial system prompt is replaced by LanguageMiddleware
     system_prompt="Initializing agent...",
     middleware=[

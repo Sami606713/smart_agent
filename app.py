@@ -1,13 +1,17 @@
 import streamlit as st
 import asyncio
+import nest_asyncio
 import sys
 from pathlib import Path
 
-# Add project root to path (needed when running via streamlit)
+# Apply nest_asyncio for safe asyncio in Streamlit
+nest_asyncio.apply()
+
+# Add project root to path
 sys.path.append(str(Path(__file__).resolve().parent))
 
 from agent.agent import agent
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
 # ─────────────────────────────────────────────
 # Page config
@@ -19,7 +23,7 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-# Sidebar — workspace selector
+# Sidebar
 # ─────────────────────────────────────────────
 with st.sidebar:
     st.title("⚙️ Settings")
@@ -32,12 +36,12 @@ with st.sidebar:
         st.rerun()
 
 # ─────────────────────────────────────────────
-# Main — header
+# Main header
 # ─────────────────────────────────────────────
 st.title("🤖 Agentic RAG")
 st.markdown(
     "Ask any question about the ingested documents. "
-    "The agent will search the **Postgres vector store** and answer using retrieved context."
+    "**Only final AI responses shown** - tools work silently in background."
 )
 st.divider()
 
@@ -48,50 +52,63 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # ─────────────────────────────────────────────
-# Render chat history
+# Render chat history (ONLY final responses)
 # ─────────────────────────────────────────────
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 # ─────────────────────────────────────────────
-# Helper: stream agent response
+# FIXED: Get ONLY final AI response (simplest & most reliable)
 # ─────────────────────────────────────────────
-async def stream_agent(query: str):
-    """Stream agent response using agent.astream with stream_mode='messages'."""
+async def get_final_ai_only(query: str):
+    """Run agent and return ONLY the final AI response content."""
     input_data = {
         "messages": [HumanMessage(content=query)],
     }
     
-    # Use LangGraph's astream with messages mode for token-level streaming
-    async for msg, metadata in agent.astream(input_data, stream_mode="messages"):
-        if msg.content and not isinstance(msg, HumanMessage):
-            yield msg.content
+    # Use ainvoke for complete final result (no streaming complexity)
+    result = await agent.ainvoke(input_data)
+    
+    # Extract final AIMessage (last message after all tools)
+    final_messages = result["messages"]
+    final_msg = final_messages[-1]
+    
+    if isinstance(final_msg, AIMessage) and final_msg.content:
+        return final_msg.content
+    
+    return "No response generated."
 
 # ─────────────────────────────────────────────
 # Chat input
 # ─────────────────────────────────────────────
 if prompt := st.chat_input("Ask a question about the documents…"):
-    # Show user message
+    # Add user message to history
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Show assistant response with streaming
+    # Get AI response
     with st.chat_message("assistant"):
-        def sync_generator():
+        message_placeholder = st.empty()
+        message_placeholder.markdown("**Thinking...**")
+
+        # Run async agent safely
+        try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            gen = stream_agent(prompt)
-            try:
-                while True:
-                    try:
-                        yield loop.run_until_complete(gen.__anext__())
-                    except StopAsyncIteration:
-                        break
-            finally:
-                loop.close()
+            full_response = loop.run_until_complete(get_final_ai_only(prompt))
+        except Exception as e:
+            full_response = f"Error: {str(e)}"
+            st.error(f"Agent error: {e}")
+        finally:
+            loop.close()
 
-        full_response = st.write_stream(sync_generator())
+        # Display final response
+        message_placeholder.markdown(full_response)
+        
+        # Save to history
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+    # Auto-scroll to bottom
+    st.rerun()
